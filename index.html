@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Three.js CRISPR Starter (fixed)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body { margin:0; overflow:hidden; font-family:Arial,Helvetica,sans-serif; background:#f6f7fb; }
+    #ui { position: absolute; left:12px; top:12px; width:240px; background:rgba(255,255,255,0.95); padding:10px; border-radius:8px; box-shadow:0 6px 18px rgba(10,20,40,0.08); z-index:60; }
+    #enzyme { width:100px; height:40px; background:#9b59b6; color:#fff; display:flex; align-items:center; justify-content:center; border-radius:6px; cursor:grab; user-select:none; margin-bottom:8px; position:relative; }
+    button { margin-top:6px; width:100%; padding:8px; border-radius:6px; border:0; cursor:pointer; font-weight:600; }
+    #simCut { background:#e74c3c; color:#fff; }
+    #info { margin-top:8px; font-size:13px; color:#111827; }
+    canvas{ display:block; position:fixed; left:0; top:0; z-index:1; }
+    @media (max-width:700px){ #ui{ width:180px } #enzyme{ width:84px } }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.155.0/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body>
+  <div id="ui">
+    <div id="enzyme">Cas9</div>
+    <button id="simCut">Simulate Cut (Space)</button>
+    <div id="info">Hover a base pair and drag enzyme to it.</div>
+  </div>
+
+  <script>
+  (function(){
+    if (typeof THREE === 'undefined') { document.getElementById('info').innerText = 'Three.js failed to load.'; return; }
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 5000);
+    camera.position.set(0, 0, 600);
+
+    const renderer = new THREE.WebGLRenderer({antialias:true});
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+    const dir = new THREE.DirectionalLight(0xffffff, 0.6);
+    dir.position.set(100,200,100);
+    scene.add(dir);
+
+    const pairCount = 120;
+    const helixRadius = 80;
+    const pitch = 6;
+    const step = 0.45;
+    const dna = [];
+
+    const cmap = { A:0xe74c3c, T:0x2ecc71, C:0x3498db, G:0xf1c40f, '-':0x999999 };
+    const bases = ['A','T','C','G'];
+
+    const sphereGeo = new THREE.SphereGeometry(8, 12, 12);
+
+    function complement(b){ return b==='A'?'T':b==='T'?'A':b==='C'?'G':'C'; }
+
+    for(let i=0;i<pairCount;i++){
+      const a = bases[Math.floor(Math.random()*4)];
+      const b = complement(a);
+      const theta = i * step;
+      const x = Math.cos(theta) * helixRadius;
+      const z = Math.sin(theta) * helixRadius;
+      const y = (i - pairCount/2) * pitch;
+
+      const matA = new THREE.MeshStandardMaterial({color:cmap[a]});
+      const matB = new THREE.MeshStandardMaterial({color:cmap[b]});
+      const meshA = new THREE.Mesh(sphereGeo, matA);
+      const meshB = new THREE.Mesh(sphereGeo, matB);
+      meshA.position.set(x - 12, y, z);
+      meshB.position.set(x + 12, y, z);
+      scene.add(meshA, meshB);
+
+      const connGeo = new THREE.BufferGeometry().setFromPoints([ new THREE.Vector3(x-12,y,z), new THREE.Vector3(x+12,y,z) ]);
+      const conn = new THREE.Line(connGeo, new THREE.LineBasicMaterial({color:0xcccccc}));
+      scene.add(conn);
+
+      dna.push({index:i, a, b, meshA, meshB, conn, pos:new THREE.Vector3(x,y,z)});
+    }
+
+    const enzymeEl = document.getElementById('enzyme');
+    let dragging = false;
+    let enzymeScreen = {x:60, y:60, attachedIndex:-1};
+    enzymeEl.style.left = enzymeScreen.x + 'px';
+    enzymeEl.style.top = enzymeScreen.y + 'px';
+    enzymeEl.style.position = 'absolute';
+
+    enzymeEl.addEventListener('pointerdown', (e)=>{
+      dragging = true;
+      enzymeEl.setPointerCapture && enzymeEl.setPointerCapture(e.pointerId);
+      enzymeEl.style.cursor = 'grabbing';
+    });
+    window.addEventListener('pointermove', (e)=>{
+      if(!dragging) return;
+      enzymeScreen.x = e.clientX - 45;
+      enzymeScreen.y = e.clientY - 20;
+      enzymeEl.style.left = enzymeScreen.x + 'px';
+      enzymeEl.style.top = enzymeScreen.y + 'px';
+    });
+    window.addEventListener('pointerup', (e)=>{
+      if(!dragging) return;
+      dragging = false;
+      enzymeEl.style.cursor = 'grab';
+      const mouse = new THREE.Vector2((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
+      const ray = new THREE.Raycaster();
+      ray.setFromCamera(mouse, camera);
+      const intersects = ray.intersectObjects(dna.flatMap(d=>[d.meshA,d.meshB]));
+      if(intersects.length>0){
+        const hit = intersects[0].object;
+        const idx = dna.findIndex(d => d.meshA===hit || d.meshB===hit);
+        if(idx>=0){
+          enzymeScreen.attachedIndex = idx;
+          const screenPos = worldToScreen(dna[idx].pos);
+          enzymeScreen.x = screenPos.x - 45;
+          enzymeScreen.y = screenPos.y - 20;
+          enzymeEl.style.left = enzymeScreen.x + 'px';
+          enzymeEl.style.top = enzymeScreen.y + 'px';
+          document.getElementById('info').innerText = 'Enzyme snapped to index ' + idx;
+          return;
+        }
+      }
+      enzymeScreen.attachedIndex = -1;
+      enzymeScreen.x = 60; enzymeScreen.y = 60;
+      enzymeEl.style.left = enzymeScreen.x + 'px';
+      enzymeEl.style.top = enzymeScreen.y + 'px';
+      document.getElementById('info').innerText = 'Dropped off DNA';
+    });
+
+    function worldToScreen(vec){
+      const v = vec.clone();
+      v.project(camera);
+      return { x: (v.x + 1) * window.innerWidth / 2, y: (-v.y + 1) * window.innerHeight / 2 };
+    }
+
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+    let hoverIndex = -1;
+    window.addEventListener('mousemove', (e)=>{
+      mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+      mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+      raycaster.setFromCamera(mouse, camera);
+      const intersects = raycaster.intersectObjects(dna.flatMap(d=>[d.meshA,d.meshB]));
+      if(intersects.length>0){
+        const hit = intersects[0].object;
+        const idx = dna.findIndex(d => d.meshA===hit || d.meshB===hit);
+        if(idx !== hoverIndex){
+          if(hoverIndex>=0){
+            dna[hoverIndex].meshA.material.emissive.setHex(0x000000);
+            dna[hoverIndex].meshB.material.emissive.setHex(0x000000);
+          }
+          hoverIndex = idx;
+          dna[hoverIndex].meshA.material.emissive.setHex(0x333333);
+          dna[hoverIndex].meshB.material.emissive.setHex(0x333333);
+        }
+      } else {
+        if(hoverIndex>=0){
+          dna[hoverIndex].meshA.material.emissive.setHex(0x000000);
+          dna[hoverIndex].meshB.material.emissive.setHex(0x000000);
+        }
+        hoverIndex = -1;
+      }
+    });
+
+    function cutAt(index){
+      if(index<0) return;
+      dna[index].meshA.material.color.setHex(cmap['-']);
+      dna[index].meshB.material.color.setHex(cmap['-']);
+      dna[index].a = '-'; dna[index].b = '-';
+      if (dna[index].conn && dna[index].conn.material) dna[index].conn.material.color.setHex(0x333333);
+      document.getElementById('info').innerText = 'Cut at index ' + index;
+    }
+
+    document.getElementById('simCut').addEventListener('click', ()=>{
+      if(enzymeScreen.attachedIndex>=0) cutAt(enzymeScreen.attachedIndex);
+      else alert('Drag enzyme to a base pair first');
+    });
+    window.addEventListener('keydown', (e)=>{ if(e.code==='Space'){ if(enzymeScreen.attachedIndex>=0) cutAt(enzymeScreen.attachedIndex); } });
+
+    function animate(){
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    window.addEventListener('resize', ()=>{
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  })();
+  </script>
+</body>
+</html>
