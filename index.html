@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>CRISPR 3D — Single File</title>
+  <title>CRISPR 3D — Single File (Cas9 only)</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <style>
     html,body{height:100%;margin:0;background:#eef2f7;font-family:Inter,Arial,Helvetica,sans-serif}
@@ -53,12 +53,9 @@
 
   <div id="panel">
     <div style="font-weight:700;margin-bottom:6px">Enzyme</div>
-    <select id="casSelect">
-      <option value="Cas9">Cas9 (wildtype)</option>
-      <option value="dCas9">dCas9 (binding only)</option>
-      <option value="Cas12">Cas12 (different PAM)</option>
-    </select>
-    <div id="enzyme">Cas9</div>
+
+    <!-- Cas9 only: static label (no selector) -->
+    <div id="enzyme" aria-live="polite">Cas9</div>
 
     <div style="margin-top:8px">
       <label style="font-size:13px">Guide (20 nt)</label>
@@ -110,12 +107,11 @@
 
   <!-- Combined JS (app) -->
   <script>
-  // Combined single-file app.js (UMD-safe)
   (function(){
     'use strict';
     if (typeof THREE === 'undefined') { console.error('THREE missing'); document.body.innerHTML = '<div style="padding:20px;font-family:Arial">Three.js failed to load.</div>'; return; }
 
-    // --- Scene + renderer
+    // Scene + renderer
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0xf6f7fb);
     const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 5000);
@@ -126,20 +122,20 @@
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
 
-    // --- Controls
+    // Controls
     const ControlsClass = (typeof THREE !== 'undefined' && THREE.OrbitControls) || window.OrbitControls || null;
     const controls = ControlsClass ? new ControlsClass(camera, renderer.domElement) : { update: ()=>{} };
     if (controls && controls.enableDamping !== undefined) { controls.enableDamping = true; controls.dampingFactor = 0.08; controls.minDistance = 50; controls.maxDistance = 3000; }
 
-    // --- Lights
+    // Lights
     scene.add(new THREE.AmbientLight(0xffffff, 0.7));
     const dir = new THREE.DirectionalLight(0xffffff, 0.6); dir.position.set(200,400,200); scene.add(dir);
 
-    // --- dnaGroup
+    // dnaGroup
     const dnaGroup = new THREE.Group();
     scene.add(dnaGroup);
 
-    // --- Parameters (classic simple helix)
+    // Parameters
     let pairCount = 40;
     const helixRadius = 120, pitch = 6, angleStep = 0.45;
     const dna = [];
@@ -149,21 +145,19 @@
     function complement(b){ if(b==='A')return'T'; if(b==='T')return'A'; if(b==='C')return'G'; if(b==='G')return'C'; return'N'; }
     function randomGuide(len){ const b=['A','T','C','G']; let s=''; for(let i=0;i<len;i++) s+=b[Math.floor(Math.random()*4)]; return s; }
 
-    // --- UI refs
+    // UI refs
     const guide2dEl = document.getElementById('guide2d');
     const lastRepairEl = document.getElementById('lastRepair');
     const mutListEl = document.getElementById('mutList');
-    const casSelect = document.getElementById('casSelect');
     const guideInput = document.getElementById('guideInput');
     const loadGuideBtn = document.getElementById('loadGuide');
     const findPAMBtn = document.getElementById('findPAM');
 
-    // --- Educational overlay elements
+    // Educational overlay
     const eduOverlay = document.getElementById('eduOverlay');
     const eduTitle = document.getElementById('eduTitle');
     const eduText = document.getElementById('eduText');
     const eduClose = document.getElementById('eduClose');
-
     let eduTimer = null;
     function explain(title, text, timeout = 6000){
       try {
@@ -177,15 +171,10 @@
     }
     if (eduClose) eduClose.addEventListener('click', function(){ eduOverlay.style.display = 'none'; if (eduTimer) { clearTimeout(eduTimer); eduTimer = null; } });
 
-    // --- Logging helper (compact)
-    function log(msg){
-      if (!lastRepairEl) return;
-      lastRepairEl.innerText = msg;
-    }
+    function log(msg){ if (!lastRepairEl) return; lastRepairEl.innerText = msg; }
 
-    // --- Build simple DNA (spheres + connectors)
+    // Build DNA
     function generateDNA(){
-      // clear previous
       for (let i=0;i<dna.length;i++){
         const d = dna[i];
         if (d.meshA) { dnaGroup.remove(d.meshA); try{ d.meshA.geometry.dispose(); d.meshA.material.dispose(); }catch(e){} }
@@ -219,17 +208,16 @@
         dna.push({ index:i, a, b, meshA, meshB, conn, pos:new THREE.Vector3(x,y,z), pam:false, pamRing:null, guideRing:null });
       }
 
-      // mark PAMs (NGG and NAG)
       for (let i=0;i<dna.length-2;i++){
         const tri = dna[i].a + dna[i+1].a + dna[i+2].a;
-        if (/.[G][G]/.test(tri)){ // NGG
+        if (/.[G][G]/.test(tri)){
           dna[i+1].pam = 'NGG';
           const ringGeo = new THREE.RingGeometry(18,22,32);
           const ringMat = new THREE.MeshBasicMaterial({ color:0xff6b6b, side:THREE.DoubleSide, transparent:true, opacity:0.9 });
           const ring = new THREE.Mesh(ringGeo, ringMat);
           ring.position.copy(dna[i+1].pos); ring.rotation.x = Math.PI/2;
           dnaGroup.add(ring); dna[i+1].pamRing = ring;
-        } else if (/.[A][G]/.test(tri)){ // NAG
+        } else if (/.[A][G]/.test(tri)){
           dna[i+1].pam = 'NAG';
           const ringGeo = new THREE.RingGeometry(18,22,32);
           const ringMat = new THREE.MeshBasicMaterial({ color:0xf39c12, side:THREE.DoubleSide, transparent:true, opacity:0.9 });
@@ -244,7 +232,7 @@
 
     generateDNA();
 
-    // --- Raycaster & hover
+    // Raycaster & hover
     const raycaster = new THREE.Raycaster(); const mouse = new THREE.Vector2(); let hoverIndex = -1;
     function updateMouse(e){ mouse.x = (e.clientX/window.innerWidth)*2-1; mouse.y = -(e.clientY/window.innerHeight)*2+1; raycaster.setFromCamera(mouse,camera); }
 
@@ -268,7 +256,7 @@
       }
     });
 
-    // --- Enzyme + guide ribbon visuals (simple)
+    // Enzyme visuals (Cas9 only)
     let enzymeEl = document.getElementById('enzyme');
     if (!enzymeEl){
       enzymeEl = document.createElement('div');
@@ -284,6 +272,7 @@
     const enzymeBody = new THREE.Mesh(new THREE.SphereGeometry(14,16,16), new THREE.MeshStandardMaterial({ color: 0x6b5b95 }));
     enzymeGroup.add(enzymeBody);
 
+    // guide ribbon
     let guideTube = null;
     function createGuideRibbon(seq){
       try {
@@ -305,7 +294,7 @@
     if (guide2dEl) guide2dEl.innerText = guideSeq;
     if (guideInput) guideInput.value = guideSeq;
 
-    // --- Enzyme UI drag & snap (UI element + 3D snap)
+    // Enzyme drag & snap
     let draggingUI=false, attachedIndex=-1;
     enzymeEl.addEventListener('pointerdown', function(ev){
       draggingUI = true;
@@ -366,7 +355,7 @@
       return { x:(v.x+1)*window.innerWidth/2, y:(-v.y+1)*window.innerHeight/2 };
     }
 
-    // --- Cut & repair logic with mutation tracking (simple)
+    // Cut & repair logic
     const cutSites = [];
     function performCut(idx, offTarget=false){
       if (idx < 0) return;
@@ -392,12 +381,11 @@
       mutListEl.prepend(li);
     }
 
-    // UI cut handlers
+    // UI handlers
     const simCutBtn = document.getElementById('simCut');
     if (simCutBtn) simCutBtn.addEventListener('click', function(){ if (attachedIndex>=0) performCut(attachedIndex, !dna[attachedIndex].pam); else { alert('Drag enzyme to a base pair first.'); explain('No enzyme bound', 'Place the enzyme on a base pair before cutting.'); } });
     window.addEventListener('keydown', function(e){ if (e.code === 'Space'){ e.preventDefault(); if (attachedIndex>=0) performCut(attachedIndex, !dna[attachedIndex].pam); else { alert('Drag enzyme to a base pair first.'); explain('No enzyme bound', 'Place the enzyme on a base pair before cutting.'); } } });
 
-    // --- NHEJ & HDR (simple)
     function simulateNHEJ(){
       if (cutSites.length === 0){ alert('No cut to repair. Create a cut first.'); explain('No cut', 'NHEJ repairs double-strand breaks without a template and often introduces small insertions or deletions (indels).'); return; }
       const idx = cutSites[cutSites.length-1];
@@ -424,7 +412,7 @@
     const btnNHEJ = document.getElementById('btnNHEJ'); if (btnNHEJ) btnNHEJ.addEventListener('click', simulateNHEJ);
     const btnHDR = document.getElementById('btnHDR'); if (btnHDR) btnHDR.addEventListener('click', function(){ simulateHDR(); });
 
-    // --- Guide search highlight
+    // Guide highlight
     function highlightGuide(seq){
       if (!seq || seq.length < 1) return;
       for (let i=0;i<dna.length;i++){ if (dna[i].guideRing){ dnaGroup.remove(dna[i].guideRing); dna[i].guideRing = null; } }
@@ -460,17 +448,12 @@
       explain('PAM search', 'PAMs are short DNA motifs required for many CRISPR nucleases to bind.');
     });
 
-    // --- Transcription animation (polymerase)
+    // Transcription (polymerase)
     const polymerase = new THREE.Mesh(new THREE.SphereGeometry(6,12,12), new THREE.MeshStandardMaterial({ color:0x1f8ef1 }));
     scene.add(polymerase);
     let polPos = 0;
     let polActive = false;
-    function startTranscription(){
-      polPos = 0;
-      polActive = true;
-      log('Transcription started');
-      explain('Transcription started', 'RNA polymerase is moving along the DNA.');
-    }
+    function startTranscription(){ polPos = 0; polActive = true; log('Transcription started'); explain('Transcription started', 'RNA polymerase is moving along the DNA.'); }
     function stopTranscription(){ polActive = false; log('Transcription stopped'); explain('Transcription stopped', 'RNA polymerase stopped moving.'); }
 
     let mrnaMesh = null;
@@ -487,7 +470,7 @@
       scene.add(mrnaMesh);
     }
 
-    // --- Drag the whole DNA group when user drags on canvas (hold 'D' optional)
+    // DNA drag
     let dnaDragMode = false;
     let draggingDNA = false;
     let dragOffset = new THREE.Vector3();
@@ -535,7 +518,7 @@
       }
     });
 
-    // --- Render loop + spin of dnaGroup
+    // Render loop
     let lastTime = performance.now();
     let running = true;
     const btnPause = document.getElementById('btnPause');
@@ -564,10 +547,10 @@
     }
     animate(performance.now());
 
-    // --- Resize
+    // Resize
     window.addEventListener('resize', function(){ camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
 
-    // --- Small helpers & safety
+    // Debug helpers
     window.__dnaDebug = {
       regenerate: ()=>{ generateDNA(); },
       setPairCount: (n)=>{ pairCount = Math.max(8, Math.floor(n)); generateDNA(); },
@@ -576,37 +559,19 @@
       stopTranscription: ()=>{ stopTranscription(); }
     };
 
-    // --- UI wiring
+    // UI wiring (no Cas selector; enzyme fixed to Cas9)
     try {
-      if (casSelect){
-        casSelect.addEventListener('change', function(){
-          const v = casSelect.value;
-          enzymeEl.innerText = v;
-          if (v === 'dCas9') enzymeBody.material.color.setHex(0x9b59b6);
-          else if (v === 'Cas12') enzymeBody.material.color.setHex(0x16a085);
-          else enzymeBody.material.color.setHex(0x6b5b95);
-          log('Cas variant set to ' + v);
-          explain('Cas variant changed', 'Different Cas variants have different behaviors.');
-        });
-      }
-
       const topbar = document.getElementById('topbar');
-      if (topbar){
-        topbar.addEventListener('dblclick', function(){ if (!polActive) startTranscription(); else stopTranscription(); });
-      }
-
+      if (topbar){ topbar.addEventListener('dblclick', function(){ if (!polActive) startTranscription(); else stopTranscription(); }); }
       const resetBtn = document.getElementById('resetBtn');
       if (resetBtn) resetBtn.addEventListener('click', function(){ generateDNA(); explain('DNA reset', 'A new random DNA sequence was generated.'); });
+    } catch (e){ console.warn('UI wiring partial failure', e); }
 
-    } catch (e){
-      console.warn('UI wiring partial failure', e);
-    }
+    // Final log
+    log('Classic DNA demo initialized. Enzyme: Cas9. Guide: ' + guideSeq);
+    explain('Welcome', 'Cas9-only demo loaded. Drag the enzyme onto the helix to bind it, then press Space or Simulate Cut to create a break.');
 
-    // --- Final log + initial explanation
-    log('Classic DNA demo initialized. Guide: ' + guideSeq);
-    explain('Welcome', 'Classic DNA visuals restored. Drag the enzyme onto the helix to bind it, then press Space or Simulate Cut to create a break.');
-
-    // expose minimal state for debugging
+    // Expose state
     window.__dnaState = { scene, camera, renderer, dna, dnaGroup, attachedIndexGetter: ()=> attachedIndex, performCut, generateDNA };
 
   })();
